@@ -28,7 +28,7 @@ Se o controle não aparecer, libere o Terminal em **Ajustes do Sistema → Priva
 ## Configurar no Astris
 
 1. Conecte o Pro Controller por Bluetooth e deixe o `pro-bridge` rodando.
-2. Nas configurações de controle do Astris, escolha o controle **DSU** para o Player 1, com servidor `127.0.0.1` e porta `26760`, slot 1.
+2. Nas configurações de controle do Astris, escolha o controle **DSU** para o Player 1, com servidor `127.0.0.1` e porta `26760`, **Slot 0** (o primeiro controle; o log do pro-bridge chama de "Slot 1").
 3. Deixe **Swap A/B and X/Y desligado**: o pro-bridge já envia os botões do jeito que o Astris espera.
 4. Não deixe o Pro Controller nativo (GameController) ligado a outro player, senão o mesmo controle entra duas vezes.
 
@@ -44,4 +44,4 @@ Se o controle não aparecer, libere o Terminal em **Ajustes do Sistema → Priva
 | Analógicos | 0–255, centro 128, Y positivo para cima |
 | Giroscópio | aceleração em g, rotação em graus/s, eixos do SDL (x direita, y cima, z na direção do jogador) |
 
-Até 4 controles, nos slots 1 a 4, por ordem de conexão.
+Até 4 controles, nos slots 0 a 3 do DSU, por ordem de conexão.
