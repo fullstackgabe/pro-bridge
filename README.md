@@ -29,6 +29,15 @@ Alguns controles (principalmente compatíveis) têm desvio no giroscópio: parad
 
 Se o controle não aparecer, libere o Terminal em **Ajustes do Sistema → Privacidade e Segurança → Monitoramento de Entrada**.
 
+## Iniciar junto com o Mac
+
+```sh
+make install-agent    # instala um LaunchAgent: inicia no login e reinicia se cair
+make uninstall-agent  # remove
+```
+
+Log em `~/Library/Logs/pro-bridge.log`.
+
 ## Configurar no Astris
 
 1. Conecte o Pro Controller por Bluetooth e deixe o `pro-bridge` rodando.
