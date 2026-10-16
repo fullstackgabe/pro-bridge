@@ -23,6 +23,12 @@
 #define MAXIMUM_CLIENTS 8
 #define STANDARD_GRAVITY 9.80665f
 #define RADIANS_TO_DEGREES 57.29577951f
+// Gyro auto-calibration: a window counts as "still" when every gyro axis stays within this spread
+// and the accelerometer barely moves, for at least this long.
+#define STILL_GYRO_SPREAD_DEGREES 2.0f
+#define STILL_ACCEL_DELTA_G 0.03f
+#define STILL_WINDOW_MICROSECONDS 1000000
+#define GYRO_DEADZONE_DEGREES 0.3f
 
 typedef struct {
     SDL_Gamepad *gamepad;
@@ -32,6 +38,14 @@ typedef struct {
     Uint64 motionTimestampMicroseconds;
     float accelerometer[3];
     float gyroscope[3];
+    char guid[33];
+    float gyroBiasDegrees[3];
+    Uint64 stillWindowStartMicroseconds;
+    int stillSampleCount;
+    double stillSum[3];
+    float stillMinimum[3];
+    float stillMaximum[3];
+    float stillAccelStart[3];
 } Slot;
 
 typedef struct {
@@ -46,6 +60,7 @@ static Uint32 serverId;
 static bool verbose = false;
 static bool motionEnabled = true;
 static bool positionalFaceButtons = false;
+static bool gyroCalibrationEnabled = true;
 
 static void writeUint16(Uint8 *destination, Uint16 value) { memcpy(destination, &value, 2); }
 static void writeUint32(Uint8 *destination, Uint32 value) { memcpy(destination, &value, 4); }
@@ -178,7 +193,9 @@ static void sendSlotData(int slotIndex) {
         writeUint64(payload + 52, slot->motionTimestampMicroseconds);
         for (int axis = 0; axis < 3; axis++) {
             writeFloat(payload + 60 + axis * 4, slot->accelerometer[axis] / STANDARD_GRAVITY);
-            writeFloat(payload + 72 + axis * 4, slot->gyroscope[axis] * RADIANS_TO_DEGREES);
+            float degrees = slot->gyroscope[axis] * RADIANS_TO_DEGREES - slot->gyroBiasDegrees[axis];
+            if (SDL_fabsf(degrees) < GYRO_DEADZONE_DEGREES) degrees = 0;
+            writeFloat(payload + 72 + axis * 4, degrees);
         }
     }
 
@@ -246,6 +263,82 @@ static void handleRequest(const Uint8 *packet, ssize_t length, const struct sock
     }
 }
 
+// Calibration is saved per controller model+GUID so the next session starts already corrected.
+static bool calibrationPath(const Slot *slot, char *path, size_t size) {
+    char *directory = SDL_GetPrefPath("fullstackgabe", "pro-bridge");
+    if (!directory) return false;
+    SDL_snprintf(path, size, "%sgyro-%s.txt", directory, slot->guid);
+    SDL_free(directory);
+    return true;
+}
+
+static void loadGyroCalibration(Slot *slot) {
+    char path[1024];
+    if (!calibrationPath(slot, path, sizeof(path))) return;
+    FILE *file = fopen(path, "r");
+    if (!file) return;
+    float bias[3];
+    if (fscanf(file, "%f %f %f", &bias[0], &bias[1], &bias[2]) == 3) {
+        memcpy(slot->gyroBiasDegrees, bias, sizeof(bias));
+        SDL_Log("Gyro calibration loaded: %+.2f %+.2f %+.2f deg/s", bias[0], bias[1], bias[2]);
+    }
+    fclose(file);
+}
+
+static void saveGyroCalibration(const Slot *slot) {
+    char path[1024];
+    if (!calibrationPath(slot, path, sizeof(path))) return;
+    FILE *file = fopen(path, "w");
+    if (!file) return;
+    fprintf(file, "%f %f %f\n", slot->gyroBiasDegrees[0], slot->gyroBiasDegrees[1], slot->gyroBiasDegrees[2]);
+    fclose(file);
+}
+
+static void resetStillWindow(Slot *slot, Uint64 timestampMicroseconds) {
+    slot->stillWindowStartMicroseconds = timestampMicroseconds;
+    slot->stillSampleCount = 0;
+    for (int axis = 0; axis < 3; axis++) {
+        slot->stillSum[axis] = 0;
+        slot->stillMinimum[axis] = 1e9f;
+        slot->stillMaximum[axis] = -1e9f;
+        slot->stillAccelStart[axis] = slot->accelerometer[axis] / STANDARD_GRAVITY;
+    }
+}
+
+// While the controller rests still for a full window, its average gyro reading is pure bias.
+static void updateGyroCalibration(Slot *slot) {
+    Uint64 now = slot->motionTimestampMicroseconds;
+    if (slot->stillSampleCount == 0) resetStillWindow(slot, now);
+
+    for (int axis = 0; axis < 3; axis++) {
+        float degrees = slot->gyroscope[axis] * RADIANS_TO_DEGREES;
+        float accelDelta = SDL_fabsf(slot->accelerometer[axis] / STANDARD_GRAVITY - slot->stillAccelStart[axis]);
+        slot->stillMinimum[axis] = SDL_min(slot->stillMinimum[axis], degrees);
+        slot->stillMaximum[axis] = SDL_max(slot->stillMaximum[axis], degrees);
+        if (slot->stillMaximum[axis] - slot->stillMinimum[axis] > STILL_GYRO_SPREAD_DEGREES || accelDelta > STILL_ACCEL_DELTA_G) {
+            resetStillWindow(slot, now);
+            return;
+        }
+        slot->stillSum[axis] += degrees;
+    }
+    slot->stillSampleCount++;
+
+    if (now - slot->stillWindowStartMicroseconds < STILL_WINDOW_MICROSECONDS || slot->stillSampleCount < 50) return;
+
+    float change = 0;
+    for (int axis = 0; axis < 3; axis++) {
+        float bias = (float)(slot->stillSum[axis] / slot->stillSampleCount);
+        change = SDL_max(change, SDL_fabsf(bias - slot->gyroBiasDegrees[axis]));
+        slot->gyroBiasDegrees[axis] = bias;
+    }
+    if (change > 0.2f) {
+        SDL_Log("Gyro calibrated (controller still): %+.2f %+.2f %+.2f deg/s", slot->gyroBiasDegrees[0], slot->gyroBiasDegrees[1],
+                slot->gyroBiasDegrees[2]);
+        saveGyroCalibration(slot);
+    }
+    slot->stillSampleCount = 0;
+}
+
 static int slotForJoystick(SDL_JoystickID joystickId) {
     for (int i = 0; i < MAXIMUM_SLOTS; i++) {
         if (slots[i].gamepad && slots[i].joystickId == joystickId) return i;
@@ -269,6 +362,8 @@ static void addGamepad(SDL_JoystickID joystickId) {
             slots[i].hasMotion = SDL_SetGamepadSensorEnabled(gamepad, SDL_SENSOR_GYRO, true) &&
                                  SDL_SetGamepadSensorEnabled(gamepad, SDL_SENSOR_ACCEL, true);
         }
+        SDL_GUIDToString(SDL_GetGamepadGUIDForID(joystickId), slots[i].guid, sizeof(slots[i].guid));
+        if (slots[i].hasMotion) loadGyroCalibration(&slots[i]);
         bool wired = SDL_GetGamepadConnectionState(gamepad) == SDL_JOYSTICK_CONNECTION_WIRED;
         SDL_Log("Slot %d: %s (%s, motion %s)", i + 1, SDL_GetGamepadName(gamepad), wired ? "USB" : "Bluetooth",
                 slots[i].hasMotion ? "on" : "off");
@@ -307,7 +402,7 @@ static bool openServerSocket(const char *host, int port) {
 }
 
 static void printUsage(const char *program) {
-    printf("Usage: %s [--host 127.0.0.1] [--port 26760] [--no-motion] [--positional] [--verbose]\n", program);
+    printf("Usage: %s [--host 127.0.0.1] [--port 26760] [--no-motion] [--no-gyro-calibration] [--positional] [--verbose]\n", program);
 }
 
 int main(int argc, char **argv) {
@@ -319,6 +414,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--no-motion")) motionEnabled = false;
         else if (!strcmp(argv[i], "--verbose")) verbose = true;
         else if (!strcmp(argv[i], "--positional")) positionalFaceButtons = true;
+        else if (!strcmp(argv[i], "--no-gyro-calibration")) gyroCalibrationEnabled = false;
         else {
             printUsage(argv[0]);
             return strcmp(argv[i], "--help") ? 1 : 0;
@@ -364,6 +460,7 @@ int main(int argc, char **argv) {
                     } else if (event.gsensor.sensor == SDL_SENSOR_GYRO) {
                         memcpy(slot->gyroscope, event.gsensor.data, sizeof(slot->gyroscope));
                         slot->motionTimestampMicroseconds = event.gsensor.sensor_timestamp / 1000;
+                        if (gyroCalibrationEnabled) updateGyroCalibration(slot);
                         sendSlotData(slotIndex);
                     }
                     break;

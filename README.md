@@ -21,7 +21,11 @@ make
 ./pro-bridge --verbose  # mostra os valores dos analógicos a cada 0,5 s
 ```
 
-Opções: `--host`, `--port`, `--no-motion`, `--positional`, `--verbose`.
+Opções: `--host`, `--port`, `--no-motion`, `--no-gyro-calibration`, `--positional`, `--verbose`.
+
+### Calibração do giroscópio
+
+Alguns controles (principalmente compatíveis) têm desvio no giroscópio: parado, ele marca alguns graus por segundo e a mira anda sozinha. O pro-bridge recalibra sempre que o controle fica **parado por 1 segundo** (ex.: apoiado na mesa), desconta esse desvio e aplica uma zona morta de 0,3 °/s. A calibração fica salva em `~/Library/Application Support/fullstackgabe/pro-bridge/` e é carregada na próxima conexão.
 
 Se o controle não aparecer, libere o Terminal em **Ajustes do Sistema → Privacidade e Segurança → Monitoramento de Entrada**.
 
