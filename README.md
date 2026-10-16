@@ -21,7 +21,7 @@ make
 ./pro-bridge --verbose  # mostra os valores dos analógicos a cada 0,5 s
 ```
 
-Opções: `--host`, `--port`, `--no-motion`, `--verbose`.
+Opções: `--host`, `--port`, `--no-motion`, `--positional`, `--verbose`.
 
 Se o controle não aparecer, libere o Terminal em **Ajustes do Sistema → Privacidade e Segurança → Monitoramento de Entrada**.
 
@@ -29,13 +29,14 @@ Se o controle não aparecer, libere o Terminal em **Ajustes do Sistema → Priva
 
 1. Conecte o Pro Controller por Bluetooth e deixe o `pro-bridge` rodando.
 2. Nas configurações de controle do Astris, escolha o controle **DSU** para o Player 1, com servidor `127.0.0.1` e porta `26760`, slot 1.
-3. Não deixe o Pro Controller nativo (GameController) ligado a outro player, senão o mesmo controle entra duas vezes.
+3. Deixe **Swap A/B and X/Y desligado**: o pro-bridge já envia os botões do jeito que o Astris espera.
+4. Não deixe o Pro Controller nativo (GameController) ligado a outro player, senão o mesmo controle entra duas vezes.
 
 ## Mapeamento
 
 | Pro Controller | DSU |
 | --- | --- |
-| A / B / X / Y | Círculo / Cruz / Triângulo / Quadrado (mesmas posições) |
+| A / B / X / Y | Cruz / Círculo / Quadrado / Triângulo (o Astris lê o DSU por rótulo Xbox; `--positional` envia pelas posições físicas) |
 | L / R / ZL / ZR | L1 / R1 / L2 / R2 |
 | − / + | Share / Options |
 | Home | PS |

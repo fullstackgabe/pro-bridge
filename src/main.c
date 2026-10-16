@@ -45,6 +45,7 @@ static int serverSocket = -1;
 static Uint32 serverId;
 static bool verbose = false;
 static bool motionEnabled = true;
+static bool positionalFaceButtons = false;
 
 static void writeUint16(Uint8 *destination, Uint16 value) { memcpy(destination, &value, 2); }
 static void writeUint32(Uint8 *destination, Uint32 value) { memcpy(destination, &value, 4); }
@@ -126,11 +127,16 @@ static void sendSlotData(int slotIndex) {
     bool dpadDown = SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_DPAD_DOWN);
     bool dpadRight = SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_DPAD_RIGHT);
     bool dpadUp = SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_DPAD_UP);
-    // SDL3 buttons are positional; DSU face names follow the Nintendo layout positions.
-    bool buttonY = SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_WEST);
-    bool buttonB = SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_SOUTH);
-    bool buttonA = SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_EAST);
-    bool buttonX = SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_NORTH);
+    // SDL3 buttons are positional. Astris reads DSU faces by Xbox label (bottom = A), so by default the
+    // Nintendo labels are sent where Astris expects them; --positional keeps the physical positions instead.
+    bool west = SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_WEST);
+    bool south = SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_SOUTH);
+    bool east = SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_EAST);
+    bool north = SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_NORTH);
+    bool buttonY = positionalFaceButtons ? west : north;
+    bool buttonB = positionalFaceButtons ? south : east;
+    bool buttonA = positionalFaceButtons ? east : south;
+    bool buttonX = positionalFaceButtons ? north : west;
     bool buttonR = SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER);
     bool buttonL = SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER);
     Sint16 triggerRight = SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
@@ -301,7 +307,7 @@ static bool openServerSocket(const char *host, int port) {
 }
 
 static void printUsage(const char *program) {
-    printf("Usage: %s [--host 127.0.0.1] [--port 26760] [--no-motion] [--verbose]\n", program);
+    printf("Usage: %s [--host 127.0.0.1] [--port 26760] [--no-motion] [--positional] [--verbose]\n", program);
 }
 
 int main(int argc, char **argv) {
@@ -312,6 +318,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--port") && i + 1 < argc) port = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--no-motion")) motionEnabled = false;
         else if (!strcmp(argv[i], "--verbose")) verbose = true;
+        else if (!strcmp(argv[i], "--positional")) positionalFaceButtons = true;
         else {
             printUsage(argv[0]);
             return strcmp(argv[i], "--help") ? 1 : 0;
